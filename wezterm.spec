@@ -21,7 +21,8 @@ sed -i 's/# debug = 2/debug = 2/' Cargo.toml
 
 
 %build
-CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --all --release
+CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
+    cargo build --release --features distro-defaults -p wezterm-gui -p wezterm -p wezterm-mux-server -p strip-ansi-escapes
 
 
 %install
