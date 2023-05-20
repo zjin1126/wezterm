@@ -1,6 +1,6 @@
 Name:           wezterm
 Version:        0
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Wez's Terminal Emulator
 
 License:        MIT
@@ -59,6 +59,9 @@ install -Dm644 assets/wezterm-nautilus.py %{buildroot}/usr/share/nautilus-python
 
 
 %changelog
+* Sat May 20 2023 Tzuchieh Lin <zjlin@zjlin.org> 0-5
+- merge upstream (4ae176dd)
+
 * Tue May 16 2023 Tzuchieh Lin <zjlin@zjlin.org> 0-4
 - merge upstream (76406e84)
 
