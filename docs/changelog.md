@@ -46,6 +46,10 @@ As features stabilize some brief notes about them will accumulate here.
 * [augment-command-palette](config/lua/window-events/augment-command-palette.md)
   event for adding entries to the command palette without assigning keyboard
   shortcuts. #3595
+* [char_select_bg_color](config/lua/config/char_select_bg_color.md) and
+  [char_select_fg_color](config/lua/config/char_select_fg_color.md) options to
+  customize the appearance of
+  [CharSelect](config/lua/keyassignment/CharSelect.md) mode. Thanks to @junnplus! #3703
 
 #### Fixed
 
@@ -89,9 +93,18 @@ As features stabilize some brief notes about them will accumulate here.
 * WebGpu: don't panic when trying to allocate a texture larger than is
   supported by the GPU. #3713
 * `CopyMode("EditPattern")` didn't switch the key table to `search_mode` #3746.
+* Windows: access denied error when using `wezterm.plugin.require`. Thanks to @nyxkrage! #3767
+* Windows: when shell integration was used, the last line of output could get
+  overwritten due to a conpty issue. #3531
+* Changing the color palette back to the default without resetting the terminal
+  would prevent changes to `color_scheme` from taking effect. #3685
+* ClearToEndOfLine performed in the last column of the display, when it is
+  prepped to wrap to the next line, would incorrectly clear the last cell.
+  #3548
+* WEZTERM_UNIX_SOCKET didn't get set when using `wezterm start -- something`. #3679
 
 #### Updated
-* Bundled harfbuzz to 7.1.0
+* Bundled harfbuzz to 7.3.0
 * Bundled freetype to 2.13.0
 * Bundled Nerd Font Symbols font to v3.0.1. Note that there are several
   [breaking changes in v3](https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.0.0).

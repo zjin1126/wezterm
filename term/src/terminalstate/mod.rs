@@ -670,6 +670,21 @@ impl TerminalState {
         self.palette.as_mut().unwrap()
     }
 
+    /// If the current overridden palette is effectively the same as
+    /// the configured palette, remove the override and treat it as
+    /// being the same as the configured state.
+    /// This allows runtime changes to the configuration to take effect.
+    pub fn implicit_palette_reset_if_same_as_configured(&mut self) {
+        if self
+            .palette
+            .as_ref()
+            .map(|p| *p == self.config.color_palette())
+            .unwrap_or(false)
+        {
+            self.palette.take();
+        }
+    }
+
     /// Returns a reference to the active screen (either the primary or
     /// the alternate screen).
     pub fn screen(&self) -> &Screen {
@@ -2110,7 +2125,13 @@ impl TerminalState {
                 let cols = self.screen().physical_cols;
                 let bidi_mode = self.get_bidi_mode();
                 let range = match erase {
-                    EraseInLine::EraseToEndOfLine => cx..cols,
+                    // If wrap_next is true, then cx is effectively 1 column to the right.
+                    // It feels wrong to handle this here, but in trying to centralize
+                    // the logic for updating the cursor position, it causes regressions
+                    // in the test suite.
+                    // So this is here for now until a better solution is found.
+                    // <https://github.com/wez/wezterm/issues/3548>
+                    EraseInLine::EraseToEndOfLine => cx + if self.wrap_next { 1 } else { 0 }..cols,
                     EraseInLine::EraseToStartOfLine => 0..cx + 1,
                     EraseInLine::EraseLine => 0..cols,
                 };
