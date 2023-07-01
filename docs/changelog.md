@@ -37,6 +37,8 @@ As features stabilize some brief notes about them will accumulate here.
   terminal background color as a placeholder until the first frame has been
   decoded. In other circumstances, you may observe a brief black frame while
   waiting for the image to decode.
+* You may now use CTRL-J/K to change the selection in the launcher menu,
+  in addition to CTRL-N/P which always worked previously. #3909
 
 #### New
 
@@ -102,6 +104,7 @@ As features stabilize some brief notes about them will accumulate here.
   prepped to wrap to the next line, would incorrectly clear the last cell.
   #3548
 * WEZTERM_UNIX_SOCKET didn't get set when using `wezterm start -- something`. #3679
+* Pasting large amounts of text in helix caused issues. #3683
 
 #### Updated
 * Bundled harfbuzz to 7.3.0
