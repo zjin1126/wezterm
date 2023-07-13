@@ -203,6 +203,9 @@ pub struct Config {
     #[dynamic(default)]
     pub exit_behavior: ExitBehavior,
 
+    #[dynamic(default)]
+    pub exit_behavior_messaging: ExitBehaviorMessaging,
+
     #[dynamic(default = "default_clean_exits")]
     pub clean_exit_codes: Vec<u32>,
 
@@ -787,6 +790,9 @@ pub struct Config {
     pub default_domain: Option<String>,
 
     #[dynamic(default)]
+    pub default_mux_server_domain: Option<String>,
+
+    #[dynamic(default)]
     pub default_workspace: Option<String>,
 
     #[dynamic(default)]
@@ -1039,7 +1045,7 @@ impl Config {
                     // file. Note that we can't catch this happening for files that are
                     // imported via the lua require function.
                     lua.load(s.trim_start_matches('\u{FEFF}'))
-                        .set_name(p.to_string_lossy())?
+                        .set_name(p.to_string_lossy())
                         .eval_async(),
                 )?;
                 let config = Config::apply_overrides_to(&lua, config)?;
@@ -1132,7 +1138,7 @@ impl Config {
                 "#,
             );
             let chunk = lua.load(&code);
-            let chunk = chunk.set_name(&format!("--config {}={}", key, value))?;
+            let chunk = chunk.set_name(format!("--config {}={}", key, value));
             lua.globals().set("config", config.clone())?;
             log::debug!("Apply {}={} to config", key, value);
             config = chunk.eval()?;
@@ -1868,6 +1874,15 @@ pub enum ExitBehavior {
     CloseOnCleanExit,
     /// Hold the pane until it is explicitly closed
     Hold,
+}
+
+#[derive(Debug, FromDynamic, ToDynamic, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExitBehaviorMessaging {
+    #[default]
+    Verbose,
+    Brief,
+    Terse,
+    None,
 }
 
 #[derive(Debug, FromDynamic, ToDynamic, Clone, Copy, PartialEq, Eq)]

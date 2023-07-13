@@ -1,40 +1,14 @@
-name: ubuntu20.04_continuous
+name: debian12_tag
 
 on:
-  schedule:
-    - cron: "10 3 * * *"
   push:
-    branches:
-      - main
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.lock"
-      - "**/Cargo.toml"
-      - ".github/workflows/gen_ubuntu20.04_continuous.yml"
-      - "assets/fonts/**/*"
-      - "assets/icon/*"
-      - "assets/open-wezterm-here"
-      - "assets/shell-completion/**/*"
-      - "assets/shell-integration/**/*"
-      - "assets/wezterm-nautilus.py"
-      - "assets/wezterm.appdata.xml"
-      - "assets/wezterm.desktop"
-      - "ci/appimage.sh"
-      - "ci/appstreamcli"
-      - "ci/deploy.sh"
-      - "ci/source-archive.sh"
-      - "ci/tag-name.sh"
-      - "get-deps"
-      - "termwiz/data/wezterm.terminfo"
+    tags:
+      - "20*"
 
 jobs:
   build:
     runs-on: "ubuntu-latest"
-    container:
-      image: "ubuntu:20.04"
-      options: --privileged
-    env:
-      BUILD_REASON: "Schedule"
+    container: "debian:12"
 
     steps:
       - name: "set APT to non-interactive"
@@ -70,7 +44,7 @@ jobs:
       - name: "Cache cargo"
         uses: Swatinem/rust-cache@v2
         with:
-          key: "ubuntu20.04-None-2-${{ runner.os }}-cargo"
+          key: "debian12-None-2-${{ runner.os }}-cargo"
       - name: "Install System Deps"
         shell: bash
         run: "env CI=yes PATH=$PATH ./get-deps"
@@ -81,33 +55,20 @@ jobs:
         uses: baptiste0928/cargo-install@v2
         with:
           crate: "cargo-nextest"
-          cache-key: "ubuntu20.04"
+          cache-key: "debian12"
       - name: "Test"
         shell: bash
         run: "cargo nextest run --all --no-fail-fast"
       - name: "Package"
         shell: bash
         run: "bash ci/deploy.sh"
-      - name: "Install libfuse2"
-        shell: bash
-        run: "apt-get install -y libfuse2"
-      - name: "Source Tarball"
-        shell: bash
-        run: "bash ci/source-archive.sh"
-      - name: "Build AppImage"
-        shell: bash
-        run: "bash ci/appimage.sh"
       - name: "Upload artifact"
         uses: actions/upload-artifact@v3
         with:
-          name: "ubuntu20.04"
+          name: "debian12"
           path: |
             wezterm-*.deb
             wezterm-*.xz
-            *src.tar.gz
-            *.AppImage
-            *.zsync
-          retention-days: 5
 
   upload:
     runs-on: ubuntu-latest
@@ -122,12 +83,17 @@ jobs:
       - name: "Download artifact"
         uses: actions/download-artifact@v3
         with:
-          name: "ubuntu20.04"
+          name: "debian12"
       - name: "Checksum"
         shell: bash
-        run: "for f in wezterm-*.deb wezterm-*.xz *src.tar.gz *.AppImage *.zsync ; do sha256sum $f > $f.sha256 ; done"
-      - name: "Upload to Nightly Release"
+        run: "for f in wezterm-*.deb wezterm-*.xz ; do sha256sum $f > $f.sha256 ; done"
+      - name: "Create pre-release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: "bash ci/retry.sh gh release upload --clobber nightly wezterm-*.deb wezterm-*.xz *src.tar.gz *.AppImage *.zsync *.sha256"
+        run: "bash ci/retry.sh bash ci/create-release.sh $(ci/tag-name.sh)"
+      - name: "Upload to Tagged Release"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: "bash ci/retry.sh gh release upload --clobber $(ci/tag-name.sh) wezterm-*.deb wezterm-*.xz *.sha256"
