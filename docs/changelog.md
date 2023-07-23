@@ -25,7 +25,50 @@ As features stabilize some brief notes about them will accumulate here.
 * The default for [front_end](config/lua/config/front_end.md) is now `WebGpu`.
 
 #### New
+* [wezterm imgcat](cli/imgcat.md) now has `--position`, `--no-move-cursor` and
+  `--hold` options. #3716
+* [wezterm set-working-directory](cli/set-working-directory.md) will now wrap
+  its OSC 7 escape sequence in the tmux passthru sequence when necessary. This can be
+  controlled via new `--tmux-passthru` option.
+* [wezterm imgcat](cli/imgcat.md) will now wrap the image transfer OSC escape
+  sequences in the tmux passthru sequence when necessary. This can be
+  controlled via new `--tmux-passthru` option. Note that tmux doesn't natively
+  understand these sequences, and tmux will wipe out the image when it redraws
+  the screen as part of scrolling back through its history. imgcat support in
+  tmux is very basic effort
+* [wezterm imgcat](cli/imgcat.md) will compensate for tmux and conpty, which
+  do not natively understand image protocols, and adjust the cursor position
+  in order to avoid the shell/prompt from mangling the image after it is printing.
+  Support for this has limitations and will not take effect when the new
+  `--position` argument is used. #3624
+* [wezterm imgcat](cli/imgcat.md) will now resample very large images in
+  order to increase the chances of successfully displaying an arbitrary image.
+  In addition, there are now a number of options for explicitly resizing
+  as a preprocessing step, and controlling the filtering and format used
+  by the resizing, along with showing diagnostics around the resize operation. #3264
+* Color schemes: [Ef-Cyprus](colorschemes/e/index.md#ef-cyprus),
+  [Ef-Day](colorschemes/e/index.md#ef-day),
+  [Ef-Deuteranopia-Dark](colorschemes/e/index.md#ef-deuteranopia-dark),
+  [Ef-Deuteranopia-Light](colorschemes/e/index.md#ef-deuteranopia-light),
+  [Ef-Duo-Dark](colorschemes/e/index.md#ef-duo-dark),
+  [Ef-Duo-Light](colorschemes/e/index.md#ef-duo-light),
+  [Ef-Elea-Dark](colorschemes/e/index.md#ef-elea-dark),
+  [Ef-Elea-Light](colorschemes/e/index.md#ef-elea-light),
+  [Ef-Frost](colorschemes/e/index.md#ef-frost),
+  [Ef-Kassio](colorschemes/e/index.md#ef-kassio),
+  [Ef-Light](colorschemes/e/index.md#ef-light),
+  [Ef-Night](colorschemes/e/index.md#ef-night),
+  [Ef-Symbiosis](colorschemes/e/index.md#ef-symbiosis),
+  [iTerm2 Default](colorschemes/i/index.md#iterm2-default),
+  [Rosé Pine Moon (base16)](colorschemes/r/index.md#rosé-pine-moon-base16)
+
 #### Fixed
+* Command Palette was using now-invalid Nerd Font 2.0 symbols for macOS
+  keyboard shortcuts. #3988
+* Windows: couldn't use shifted keys like `(` in the Debug Overlay. #3999
+* X11: fd leak on each call to
+  [wezterm.gui.enumerate_gpus](config/lua/wezterm.gui/enumerate_gpus.md). #3612
+* Charselect and repl recency/history were not persisted across restarts. #4047 ?4019
 
 ### 20230712-072601-f4abf8fd
 
