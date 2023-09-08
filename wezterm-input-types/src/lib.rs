@@ -762,6 +762,10 @@ pub enum PhysKeyCode {
     F19,
     F2,
     F20,
+    F21,
+    F22,
+    F23,
+    F24,
     F3,
     F4,
     F5,
@@ -903,6 +907,10 @@ impl PhysKeyCode {
             Self::F18 => KeyCode::Function(18),
             Self::F19 => KeyCode::Function(19),
             Self::F20 => KeyCode::Function(20),
+            Self::F21 => KeyCode::Function(21),
+            Self::F22 => KeyCode::Function(22),
+            Self::F23 => KeyCode::Function(23),
+            Self::F24 => KeyCode::Function(24),
             Self::Keypad0 => KeyCode::Numpad(0),
             Self::Keypad1 => KeyCode::Numpad(1),
             Self::Keypad2 => KeyCode::Numpad(2),
@@ -1256,6 +1264,7 @@ impl RawKeyEvent {
     }
 
     /// <https://sw.kovidgoyal.net/kitty/keyboard-protocol/#functional-key-definitions>
+    #[deny(warnings)]
     fn kitty_function_code(&self) -> Option<u32> {
         use KeyCode::*;
         Some(match self.key {
@@ -1326,11 +1335,11 @@ impl RawKeyEvent {
                         F18 => 57381,
                         F19 => 57382,
                         F20 => 57383,
-                        /*
                         F21 => 57384,
                         F22 => 57385,
                         F23 => 57386,
                         F24 => 57387,
+                        /*
                         F25 => 57388,
                         F26 => 57389,
                         F27 => 57390,
@@ -1869,7 +1878,7 @@ impl KeyEvent {
                 };
                 format!("\x1b[1;{modifiers}{event_type}{c}")
             }
-            Function(n) if *n < 13 => {
+            Function(n) if *n < 25 => {
                 // The spec says that kitty prefers an SS3 form for F1-F4,
                 // but then has some variance in the encoding and cites a
                 // compatibility issue with a cursor position report.
@@ -1888,10 +1897,25 @@ impl KeyEvent {
                     10 => "\x1b[21",
                     11 => "\x1b[23",
                     12 => "\x1b[24",
+                    13 => "\x1b[57376",
+                    14 => "\x1b[57377",
+                    15 => "\x1b[57378",
+                    16 => "\x1b[57379",
+                    17 => "\x1b[57380",
+                    18 => "\x1b[57381",
+                    19 => "\x1b[57382",
+                    20 => "\x1b[57383",
+                    21 => "\x1b[57384",
+                    22 => "\x1b[57385",
+                    23 => "\x1b[57386",
+                    24 => "\x1b[57387",
                     _ => unreachable!(),
                 };
+                // for F1-F12 the spec says we should terminate with ~
+                // for F13 and up the spec says we should terminate with u
+                let end_char = if *n < 13 { '~' } else { 'u' };
 
-                format!("{intro};{modifiers}{event_type}~")
+                format!("{intro};{modifiers}{event_type}{end_char}")
             }
 
             _ => {
