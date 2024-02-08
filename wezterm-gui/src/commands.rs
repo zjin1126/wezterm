@@ -1,5 +1,6 @@
 use crate::inputmap::InputMap;
 use config::keyassignment::*;
+use config::window::WindowLevel;
 use config::{ConfigHandle, DeferredKeyCode};
 use mux::domain::DomainState;
 use mux::Mux;
@@ -170,7 +171,11 @@ impl CommandDef {
                 None
             }
             Some(def) => {
-                let keys = def.permute_keys(config);
+                let keys = if is_built_in && config.disable_default_key_bindings {
+                    vec![]
+                } else {
+                    def.permute_keys(config)
+                };
                 Some(ExpandedCommand {
                     brief: def.brief.into(),
                     doc: def.doc.into(),
@@ -236,7 +241,7 @@ impl CommandDef {
             for dom in &domains {
                 let name = dom.domain_name();
                 // FIXME: use domain_label here, but needs to be async
-                let label = name.clone();
+                let label = name;
 
                 if dom.spawnable() {
                     if dom.state() == DomainState::Attached {
@@ -266,7 +271,7 @@ impl CommandDef {
             for dom in &domains {
                 let name = dom.domain_name();
                 // FIXME: use domain_label here, but needs to be async
-                let label = name.clone();
+                let label = name;
 
                 if dom.state() == DomainState::Attached {
                     if name == "local" {
@@ -680,6 +685,47 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             args: &[ArgType::ActiveWindow],
             menubar: &["View"],
             icon: Some("md_fullscreen"),
+        },
+        ToggleAlwaysOnTop => CommandDef {
+            brief: "Toggle always on Top".into(),
+            doc: "Toggles the window between floating and non-floating states to stay on top of other windows.".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Window"],
+            icon: None,
+
+        },
+        ToggleAlwaysOnBottom => CommandDef {
+            brief: "Toggle always on Bottom".into(),
+            doc: "Toggles the window to remain behind all other windows.".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Window"],
+            icon: None,
+        },
+        SetWindowLevel(WindowLevel::AlwaysOnTop) => CommandDef {
+            brief: "Always on Top".into(),
+            doc: "Set the window level to be on top of other windows.".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Window", "Level"],
+            icon: None,
+        },
+        SetWindowLevel(WindowLevel::Normal) => CommandDef {
+            brief: "Normal".into(),
+            doc: "Set window level to normal".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Window", "Level"],
+            icon: None,
+        },
+        SetWindowLevel(WindowLevel::AlwaysOnBottom) => CommandDef {
+            brief: "Always on Bottom".into(),
+            doc: "Set window to remain behind all other windows.".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Window", "Level"],
+            icon: None,
         },
         Hide => CommandDef {
             brief: "Hide/Minimize Window".into(),
@@ -2016,6 +2062,11 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         ScrollToBottom,
         // ----------------- Window
         ToggleFullScreen,
+        ToggleAlwaysOnTop,
+        ToggleAlwaysOnBottom,
+        SetWindowLevel(WindowLevel::AlwaysOnBottom),
+        SetWindowLevel(WindowLevel::Normal),
+        SetWindowLevel(WindowLevel::AlwaysOnTop),
         Hide,
         Search(Pattern::CurrentSelectionOrEmptyString),
         PaneSelect(PaneSelectArguments {

@@ -228,7 +228,7 @@ impl<'a> Performer<'a> {
     /// <https://github.com/wez/wezterm/issues/2442>
     fn pop_tmux_title_state(&mut self) {
         if let Some(title) = self.accumulating_title.take() {
-            log::warn!("ST never received for pending tmux title escape sequence: {title:?}");
+            log::debug!("ST never received for pending tmux title escape sequence: {title:?}");
         }
     }
 
@@ -687,7 +687,7 @@ impl<'a> Performer<'a> {
                 self.current_mouse_buttons.clear();
                 self.cursor_visible = true;
                 self.g0_charset = CharSet::Ascii;
-                self.g1_charset = CharSet::DecLineDrawing;
+                self.g1_charset = CharSet::Ascii;
                 self.shift_out = false;
                 self.newline_mode = false;
                 self.tabs = TabStop::new(self.screen().physical_cols, 8);
@@ -700,12 +700,12 @@ impl<'a> Performer<'a> {
                 self.accumulating_title.take();
 
                 self.screen.full_reset();
+                self.screen.activate_alt_screen(seqno);
+                self.erase_in_display(EraseInDisplay::EraseDisplay);
                 self.screen.activate_primary_screen(seqno);
                 self.erase_in_display(EraseInDisplay::EraseScrollback);
                 self.erase_in_display(EraseInDisplay::EraseDisplay);
-                if let Some(handler) = self.alert_handler.as_mut() {
-                    handler.alert(Alert::PaletteChanged);
-                }
+                self.palette_did_change();
             }
 
             _ => {
@@ -942,10 +942,7 @@ impl<'a> Performer<'a> {
                     }
                 }
                 self.implicit_palette_reset_if_same_as_configured();
-                if let Some(handler) = self.alert_handler.as_mut() {
-                    handler.alert(Alert::PaletteChanged);
-                }
-                self.make_all_lines_dirty();
+                self.palette_did_change();
             }
 
             OperatingSystemCommand::ResetColors(colors) => {
@@ -966,9 +963,7 @@ impl<'a> Performer<'a> {
                     }
                 }
                 self.implicit_palette_reset_if_same_as_configured();
-                if let Some(handler) = self.alert_handler.as_mut() {
-                    handler.alert(Alert::PaletteChanged);
-                }
+                self.palette_did_change();
             }
 
             OperatingSystemCommand::ChangeDynamicColors(first_color, colors) => {
@@ -1023,10 +1018,7 @@ impl<'a> Performer<'a> {
                     idx += 1;
                 }
                 self.implicit_palette_reset_if_same_as_configured();
-                if let Some(handler) = self.alert_handler.as_mut() {
-                    handler.alert(Alert::PaletteChanged);
-                }
-                self.make_all_lines_dirty();
+                self.palette_did_change();
             }
 
             OperatingSystemCommand::ResetDynamicColor(color) => {
@@ -1063,10 +1055,7 @@ impl<'a> Performer<'a> {
                     }
                 }
                 self.implicit_palette_reset_if_same_as_configured();
-                if let Some(handler) = self.alert_handler.as_mut() {
-                    handler.alert(Alert::PaletteChanged);
-                }
-                self.make_all_lines_dirty();
+                self.palette_did_change();
             }
         }
     }

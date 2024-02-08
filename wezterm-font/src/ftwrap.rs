@@ -51,18 +51,23 @@ fn render_mode_to_load_target(render_mode: FT_Render_Mode) -> u32 {
     // for these in the bindings so we do some bit magic for
     // ourselves.  This is how the FT_LOAD_TARGET_() macro
     // assembles these bits.
-    (render_mode as u32) & 15 << 16
+    ((render_mode as u32) & 15) << 16
 }
 
 pub fn compute_load_flags_from_config(
     freetype_load_flags: Option<FreeTypeLoadFlags>,
     freetype_load_target: Option<FreeTypeLoadTarget>,
     freetype_render_target: Option<FreeTypeLoadTarget>,
+    dpi: Option<u32>,
 ) -> (i32, FT_Render_Mode) {
     let config = configuration();
 
     let load_flags = freetype_load_flags
-        .unwrap_or(config.freetype_load_flags)
+        .or(config.freetype_load_flags)
+        .unwrap_or_else(|| match dpi {
+            Some(dpi) if dpi >= 100 => FreeTypeLoadFlags::default_hidpi(),
+            _ => FreeTypeLoadFlags::default(),
+        })
         .bits()
         | FT_LOAD_COLOR;
 
@@ -989,7 +994,7 @@ impl Face {
         if glyph_pos == 0 {
             anyhow::bail!("no I from which to compute cap height");
         }
-        let (load_flags, render_mode) = compute_load_flags_from_config(None, None, None);
+        let (load_flags, render_mode) = compute_load_flags_from_config(None, None, None, None);
         let ft_glyph = self.load_and_render_glyph(glyph_pos, load_flags, render_mode, false)?;
 
         let mode: FT_Pixel_Mode =

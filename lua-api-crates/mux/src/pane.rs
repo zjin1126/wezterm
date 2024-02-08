@@ -1,9 +1,11 @@
 use super::*;
 use luahelper::{dynamic_to_lua_value, from_lua, to_lua};
 use mlua::Value;
+use mux::pane::CachePolicy;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use termwiz::cell::SemanticType;
+use termwiz_funcs::lines_to_escapes;
 use url_funcs::Url;
 use wezterm_term::{SemanticZone, StableRowIndex};
 
@@ -146,7 +148,9 @@ impl UserData for MuxPane {
         methods.add_method("get_current_working_dir", |_, this, _: ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
-            Ok(pane.get_current_working_dir().map(|url| Url { url }))
+            Ok(pane
+                .get_current_working_dir(CachePolicy::FetchImmediate)
+                .map(|url| Url { url }))
         });
 
         methods.add_method("get_metadata", |lua, this, _: ()| {
@@ -159,13 +163,13 @@ impl UserData for MuxPane {
         methods.add_method("get_foreground_process_name", |_, this, _: ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
-            Ok(pane.get_foreground_process_name())
+            Ok(pane.get_foreground_process_name(CachePolicy::FetchImmediate))
         });
 
         methods.add_method("get_foreground_process_info", |_, this, _: ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
-            Ok(pane.get_foreground_process_info())
+            Ok(pane.get_foreground_process_info(CachePolicy::AllowStale))
         });
 
         methods.add_method("get_cursor_position", |_, this, _: ()| {
@@ -222,6 +226,18 @@ impl UserData for MuxPane {
             }
             let trimmed = text.trim_end().len();
             text.truncate(trimmed);
+            Ok(text)
+        });
+
+        methods.add_method("get_lines_as_escapes", |_, this, nlines: Option<usize>| {
+            let mux = get_mux()?;
+            let pane = this.resolve(&mux)?;
+            let dims = pane.get_dimensions();
+            let nlines = nlines.unwrap_or(dims.viewport_rows);
+            let bottom_row = dims.physical_top + dims.viewport_rows as isize;
+            let top_row = bottom_row.saturating_sub(nlines as isize);
+            let (_first_row, lines) = pane.get_lines(top_row..bottom_row);
+            let text = lines_to_escapes(lines).map_err(mlua::Error::external)?;
             Ok(text)
         });
 

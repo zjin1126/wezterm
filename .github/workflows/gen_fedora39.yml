@@ -1,4 +1,4 @@
-name: opensuse_leap
+name: fedora39
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ on:
       - "**/*.rs"
       - "**/Cargo.lock"
       - "**/Cargo.toml"
-      - ".github/workflows/gen_opensuse_leap.yml"
+      - ".github/workflows/gen_fedora39.yml"
       - "assets/fonts/**/*"
       - "assets/icon/*"
       - "assets/open-wezterm-here"
@@ -25,40 +25,51 @@ on:
 jobs:
   build:
     runs-on: "ubuntu-latest"
-    container: "registry.opensuse.org/opensuse/leap:15.4"
+    container: "fedora:39"
+    env:
+      CARGO_INCREMENTAL: "0"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
 
     steps:
-      - name: "Seed GITHUB_PATH to work around possible @action/core bug"
+      - name: "Install config manager"
         shell: bash
-        run: 'echo "$PATH:/bin:/usr/bin" >> $GITHUB_PATH'
-      - name: "Install util-linux"
-        shell: bash
-        run: "zypper install -y util-linux"
+        run: "dnf install -y 'dnf-command(config-manager)'"
       - name: "Install git"
         shell: bash
-        run: "zypper install -y git"
+        run: "yum install -y git"
       - name: "Install curl"
         shell: bash
-        run: "zypper install -y curl"
+        run: "yum install -y curl"
       - name: "Ensure /run/sshd exists"
         shell: bash
         run: "mkdir -p /run/sshd"
       - name: "Install openssh-server"
         shell: bash
-        run: "zypper install -y openssh-server"
+        run: "yum install -y openssh-server"
       - name: "Workaround git permissions issue"
         shell: bash
         run: "git config --global --add safe.directory /__w/wezterm/wezterm"
       - name: "checkout repo"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: "recursive"
       - name: "Install Rust"
         uses: dtolnay/rust-toolchain@stable
-      - name: "Cache cargo"
-        uses: Swatinem/rust-cache@v2
+      - name: "Compile with sccache"
+        uses: mozilla-actions/sccache-action@v0.0.4
+      - name: "Cache Rust Dependencies"
+        uses: actions/cache@v4
+        id: cache-cargo-vendor
         with:
-          key: "opensuse_leap-None-2-${{ runner.os }}-cargo"
+          path: |
+            vendor
+            .cargo/config
+          key: "cargo-deps-${{ hashFiles('**/Cargo.lock') }}"
+      - name: "Vendor dependecies"
+        if: steps.cache-cargo-vendor.outputs.cache-hit != 'true'
+        shell: bash
+        run: "cargo vendor --locked --versioned-dirs >> .cargo/config"
       - name: "Install System Deps"
         shell: bash
         run: "env CI=yes PATH=$PATH ./get-deps"
@@ -66,10 +77,10 @@ jobs:
         shell: bash
         run: "cargo build --all --release"
       - name: "Install cargo-nextest from Cargo"
-        uses: baptiste0928/cargo-install@v2
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: "cargo-nextest"
-          cache-key: "opensuse_leap"
+          cache-key: "fedora39"
       - name: "Test (Release mode)"
         shell: bash
         run: "cargo nextest run --all --release --no-fail-fast"
@@ -78,9 +89,9 @@ jobs:
         run: "bash ci/deploy.sh"
       - name: "Move RPM"
         shell: bash
-        run: "mv /usr/src/packages/RPMS/*/*.rpm ."
+        run: "mv ~/rpmbuild/RPMS/*/*.rpm ."
       - name: "Upload artifact"
         uses: actions/upload-artifact@v3
         with:
-          name: "opensuse_leap"
+          name: "fedora39"
           path: "wezterm-*.rpm"

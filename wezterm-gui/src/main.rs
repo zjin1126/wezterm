@@ -3,6 +3,7 @@
 
 use crate::customglyph::BlockKey;
 use crate::glyphcache::GlyphCache;
+use crate::utilsprites::RenderMetrics;
 use ::window::*;
 use anyhow::{anyhow, Context};
 use clap::builder::ValueParser;
@@ -28,6 +29,7 @@ use unicode_normalization::UnicodeNormalization;
 use wezterm_bidi::Direction;
 use wezterm_client::domain::ClientDomain;
 use wezterm_font::shaper::PresentationWidth;
+use wezterm_font::FontConfiguration;
 use wezterm_gui_subcommands::*;
 use wezterm_mux_server_impl::update_mux_domains;
 use wezterm_toast_notification::*;
@@ -39,10 +41,10 @@ mod download;
 mod frontend;
 mod glyphcache;
 mod inputmap;
-mod markdown;
 mod overlay;
 mod quad;
 mod renderstate;
+mod resize_increment_calculator;
 mod scripting;
 mod scrollbar;
 mod selection;
@@ -105,9 +107,15 @@ struct Opt {
 enum SubCommand {
     #[command(
         name = "start",
-        about = "Start the GUI, optionally running an alternative program"
+        about = "Start the GUI, optionally running an alternative program [aliases: -e]"
     )]
     Start(StartCommand),
+
+    /// Start the GUI in blocking mode. You shouldn't see this, but you
+    /// may see it in shell completions because of this open clap issue:
+    /// <https://github.com/clap-rs/clap/issues/1335>
+    #[command(short_flag_alias = 'e', hide = true)]
+    BlockingStart(StartCommand),
 
     #[command(name = "ssh", about = "Establish an ssh session")]
     Ssh(SshCommand),
@@ -322,9 +330,14 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
         true
     });
 
-    let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi()) as u32;
+    let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
     let _tab = domain
-        .spawn(config.initial_size(dpi), cmd, None, window_id)
+        .spawn(
+            config.initial_size(dpi as u32, Some(cell_pixel_dims(&config, dpi)?)),
+            cmd,
+            None,
+            window_id,
+        )
         .await?;
     trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
     Ok(())
@@ -381,6 +394,15 @@ async fn trigger_and_log_gui_attached(domain: MuxDomain) {
         log::error!("{}", message);
         persistent_toast_notification("Error", &message);
     }
+}
+
+fn cell_pixel_dims(config: &ConfigHandle, dpi: f64) -> anyhow::Result<(usize, usize)> {
+    let fontconfig = Rc::new(FontConfiguration::new(Some(config.clone()), dpi as usize)?);
+    let render_metrics = RenderMetrics::new(&fontconfig)?;
+    Ok((
+        render_metrics.cell_size.width as usize,
+        render_metrics.cell_size.height as usize,
+    ))
 }
 
 async fn async_run_terminal_gui(
@@ -450,9 +472,14 @@ async fn async_run_terminal_gui(
 
             domain.attach(Some(window_id)).await?;
             let config = config::configuration();
-            let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi()) as u32;
+            let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
             let tab = domain
-                .spawn(config.initial_size(dpi), cmd.clone(), None, window_id)
+                .spawn(
+                    config.initial_size(dpi as u32, Some(cell_pixel_dims(&config, dpi)?)),
+                    cmd.clone(),
+                    None,
+                    window_id,
+                )
                 .await?;
             let mut window = mux
                 .get_window_mut(window_id)
@@ -512,6 +539,7 @@ impl Publish {
         config: &ConfigHandle,
         workspace: Option<&str>,
         domain: SpawnTabDomain,
+        new_tab: bool,
     ) -> anyhow::Result<bool> {
         if let Publish::TryPathOrPublish(gui_sock) = &self {
             let dom = config::UnixDomain {
@@ -541,13 +569,44 @@ impl Publish {
                                 "Running GUI has different config from us, will start a new one"
                             );
                         }
+
+                        let window_id = if new_tab || config.prefer_to_spawn_tabs {
+                            if let Ok(pane_id) = client.resolve_pane_id(None).await {
+                                let panes = client.list_panes().await?;
+
+                                let mut window_id = None;
+                                'outer: for tabroot in panes.tabs {
+                                    let mut cursor = tabroot.into_tree().cursor();
+
+                                    loop {
+                                        if let Some(entry) = cursor.leaf_mut() {
+                                            if entry.pane_id == pane_id {
+                                                window_id.replace(entry.window_id);
+                                                break 'outer;
+                                            }
+                                        }
+                                        match cursor.preorder_next() {
+                                            Ok(c) => cursor = c,
+                                            Err(_) => break,
+                                        }
+                                    }
+                                }
+                                window_id
+
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
                         client
                             .spawn_v2(codec::SpawnV2 {
                                 domain,
-                                window_id: None,
+                                window_id,
                                 command,
                                 command_dir: None,
-                                size: config.initial_size(0),
+                                size: config.initial_size(0, None),
                                 workspace: workspace.unwrap_or(
                                     config
                                         .default_workspace
@@ -712,6 +771,7 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
             Some(name) => SpawnTabDomain::DomainName(name.to_string()),
             None => SpawnTabDomain::DefaultDomain,
         },
+        opts.new_tab,
     )? {
         return Ok(());
     }
@@ -1161,6 +1221,16 @@ fn run() -> anyhow::Result<()> {
     let config = config::configuration();
 
     let sub = match opts.cmd.as_ref().cloned() {
+        Some(SubCommand::BlockingStart(start)) => {
+            // Act as if the normal start subcommand was used,
+            // except that we always start a new instance.
+            // This is needed for compatibility, because many tools assume
+            // that "$TERMINAL -e $COMMAND" blocks until the command finished.
+            SubCommand::Start(StartCommand {
+                always_new_process: true,
+                ..start
+            })
+        }
         Some(sub) => sub,
         None => {
             // Need to fake an argv0
@@ -1184,6 +1254,7 @@ fn run() -> anyhow::Result<()> {
             wezterm_blob_leases::clear_storage();
             res
         }
+        SubCommand::BlockingStart(_) => unreachable!(),
         SubCommand::Ssh(ssh) => run_ssh(ssh),
         SubCommand::Serial(serial) => run_serial(config, serial),
         SubCommand::Connect(connect) => run_terminal_gui(
@@ -1193,6 +1264,7 @@ fn run() -> anyhow::Result<()> {
                 workspace: connect.workspace,
                 position: connect.position,
                 prog: connect.prog,
+                new_tab: connect.new_tab,
                 always_new_process: true,
                 attach: true,
                 _cmd: false,

@@ -22,6 +22,73 @@ usually the best available version.
 As features stabilize some brief notes about them will accumulate here.
 
 #### Changed
+* Wayland: currently being reimplemented, it maybe more unstable than usual.
+  Please file GH issues for any problems you see.
+  Many thanks to @tzx! #4777
+* [show_update_window](config/lua/config/show_update_window.md) has been
+  deprecated; it no longer has any effect and will be removed in a future
+  release.
+#### New
+#### Fixed
+* Race condition when very quickly adjusting font scale. Thanks to @jknockel!
+  #4876
+
+### 20240203-110809-5046fc22
+
+#### Changed
+* The default for
+  [freetype_load_flags](config/lua/config/freetype_load_flags.md) is now
+  `NO_HINTING` when the dpi is >= 100, otherwise `DEFAULT`. #4902
+* `wezterm -e` will now wait for the spawned program to terminate before
+  it will itself terminate. Thanks to @vimpostor! #4535 #4523
+* Reverted the text cursor cell dimension change due to overwhelming and
+  sometimes toxic feedback. #2882
+#### New
+* We now show the Lua version in the debug overlay. Thanks to @bbkane! #4943
+* `wezterm start --new-tab` and `wezterm connect --new-tab` to request a new
+  tab rather than a new window when spawning via an existing GUI instance.
+  The new [prefer_to_spawn_tabs](config/lua/config/prefer_to_spawn_tabs.md)
+  option allows you to make this happen by default. ?4854 ?4946
+#### Fixed
+* It was not possible to specify `freetype_load_flags = 'DEFAULT'`. #4902
+* macOS: fallback fonts could select thin or otherwise unspecified font
+  attributes. #4808
+* Changing the palette via escape sequences didn't invalidate caches
+  correctly, so those escapes sequences wouldn't take effect. #4932 #2635
+* Unix: spawning a command using a relative path, with the cwd set to a
+  directory that contains a directory with the same name as the relative
+  path to the command would fail with an obscure error message. #4920
+* x11: incorrect handling of the space key when `grp:win_space_toggle`
+  was enabled via `setxkbmap`. #4910
+* `wezterm set-working-directory` and `wezterm imgcat` didn't correctly
+  apply tmux passthrough escape encoding. #4940
+* Tab bar wouldn't immediately reflect the result of calling `tab:set_title`.
+  #4941
+* Command Palette: Missing space between keycaps on macOS. #4885
+* macOS: stale/invalid cwd used when spawning new panes when shell integration
+  is NOT in use. #4811
+* Command Palette: would show default key assignments next to actions even
+  if `disable_default_key_bindings` was configured. #4724
+
+### 20240128-202157-1e552d76
+
+#### Changed
+* The default for [front_end](config/lua/config/front_end.md) is again
+  `OpenGL`.
+* The default for
+  [freetype_load_flags](config/lua/config/freetype_load_flags.md) is now
+  `NO_HINTING`. #4874
+
+#### Fixed
+* macOS: System LastResort font would be taken in preference to other fonts
+  in some cases when trying to find the fallback for bold fonts. #4877
+* The fancy tab bar could take a few moments to update after closing a tab. #4880
+* Kitty Image Protocol: fixed numerous issues. Thanks to @jonboh! #1156 #1663
+  #2084 #2422 #2761 #3918 #4233 #4847
+
+### 20240127-113634-bbcac864
+
+#### Changed
 * The default for [front_end](config/lua/config/front_end.md) is now `WebGpu`.
 * The return type of
   [pane.get_current_working_dir](config/lua/pane/get_current_working_dir.md)
@@ -38,6 +105,10 @@ As features stabilize some brief notes about them will accumulate here.
 * [PaneSelect](config/lua/keyassignment/PaneSelect.md) new modes `MoveToNewTab`,
   `MoveToNewWindow`, and `SwapWithActiveKeepFocus`, as well as
   `show_pane_ids=true` to show the pane ids.  #4147 #3014
+* Nightly `.deb` packages are now named `wezterm-nightly` rather than `wezterm`,
+  and are set to conflict with `wezterm`.
+* Allow `window_frame` colors now allow specifying the alpha channel value,
+  which enables transparent fancy tab bar backgrounds. ?4816 #3580 ?4311
 
 #### New
 * [wezterm imgcat](cli/imgcat.md) now has `--position`, `--no-move-cursor` and
@@ -61,7 +132,13 @@ As features stabilize some brief notes about them will accumulate here.
   In addition, there are now a number of options for explicitly resizing
   as a preprocessing step, and controlling the filtering and format used
   by the resizing, along with showing diagnostics around the resize operation. #3264
-* Color schemes: [Ef-Cyprus](colorschemes/e/index.md#ef-cyprus),
+* Color schemes: [Aardvark Blue](colorschemes/a/index.md#aardvark-blue),
+  [alacritty](colorschemes/a/index.md#alacritty),
+  [Apple System Colors](colorschemes/a/index.md#apple-system-colors),
+  [Bamboo Light](colorschemes/b/index.md#bamboo-light),
+  [Campbell (Gogh)](colorschemes/c/index.md#campbell-gogh),
+  [Ef-Arbutus](colorschemes/e/index.md#ef-arbutus),
+  [Ef-Cyprus](colorschemes/e/index.md#ef-cyprus),
   [Ef-Day](colorschemes/e/index.md#ef-day),
   [Ef-Deuteranopia-Dark](colorschemes/e/index.md#ef-deuteranopia-dark),
   [Ef-Deuteranopia-Light](colorschemes/e/index.md#ef-deuteranopia-light),
@@ -72,13 +149,64 @@ As features stabilize some brief notes about them will accumulate here.
   [Ef-Frost](colorschemes/e/index.md#ef-frost),
   [Ef-Kassio](colorschemes/e/index.md#ef-kassio),
   [Ef-Light](colorschemes/e/index.md#ef-light),
+  [Ef-Maris-Dark](colorschemes/e/index.md#ef-maris-dark),
+  [Ef-Maris-Light](colorschemes/e/index.md#ef-maris-light),
+  [Ef-Melissa-Dark](colorschemes/e/index.md#ef-melissa-dark),
+  [Ef-Melissa-Light](colorschemes/e/index.md#ef-melissa-light),
   [Ef-Night](colorschemes/e/index.md#ef-night),
+  [Ef-Rosa](colorschemes/e/index.md#ef-rosa),
   [Ef-Symbiosis](colorschemes/e/index.md#ef-symbiosis),
+  [farmhouse-dark](colorschemes/f/index.md#farmhouse-dark),
+  [farmhouse-light](colorschemes/f/index.md#farmhouse-light),
+  [Firefly Traditional](colorschemes/f/index.md#firefly-traditional),
+  [flexoki-dark](colorschemes/f/index.md#flexoki-dark),
+  [flexoki-light](colorschemes/f/index.md#flexoki-light),
+  [Github Dark (Gogh)](colorschemes/g/index.md#github-dark-gogh),
+  [iTerm2 Dark Background](colorschemes/i/index.md#iterm2-dark-background),
   [iTerm2 Default](colorschemes/i/index.md#iterm2-default),
-  [Rosé Pine Moon (base16)](colorschemes/r/index.md#rosé-pine-moon-base16)
+  [iTerm2 Light Background](colorschemes/i/index.md#iterm2-light-background),
+  [iTerm2 Pastel Dark Background](colorschemes/i/index.md#iterm2-pastel-dark-background),
+  [iTerm2 Smoooooth](colorschemes/i/index.md#iterm2-smoooooth),
+  [iTerm2 Tango Dark](colorschemes/i/index.md#iterm2-tango-dark),
+  [iTerm2 Tango Light](colorschemes/i/index.md#iterm2-tango-light),
+  [Modus-Operandi-Deuteranopia](colorschemes/m/index.md#modus-operandi-deuteranopia),
+  [Modus-Operandi-Tinted](colorschemes/m/index.md#modus-operandi-tinted),
+  [Modus-Vivendi-Deuteranopia](colorschemes/m/index.md#modus-vivendi-deuteranopia),
+  [Modus-Vivendi-Tinted](colorschemes/m/index.md#modus-vivendi-tinted),
+  [Modus-Vivendi-Tritanopia](colorschemes/m/index.md#modus-vivendi-tritanopia),
+  [Moonfly (Gogh)](colorschemes/m/index.md#moonfly-gogh),
+  [Nightfly (Gogh)](colorschemes/n/index.md#nightfly-gogh),
+  [Oxocarbon Dark (Gogh)](colorschemes/o/index.md#oxocarbon-dark-gogh),
+  [Rosé Pine Moon (base16)](colorschemes/r/index.md#rosé-pine-moon-base16),
+  [Selenized Dark (Gogh)](colorschemes/s/index.md#selenized-dark-gogh),
+  [Selenized Light (Gogh)](colorschemes/s/index.md#selenized-light-gogh),
+  [Website (Gogh)](colorschemes/w/index.md#website-gogh)
 * Preliminary support for rasterizing fonts with COLR v1 glyphs, such as
   more recent versions of Noto Color Emoji. #4148
 * [wezterm cli zoom-pane](cli/cli/zoom-pane.md). Thanks to @quantonganh! #4160
+* [InputSelector](config/lua/keyassignment/InputSelector.md) has been
+  enhanced to allow setting an alphabet for quickly launching items beyond
+  the first 10 items, as well as customizing the description/label text.
+  Thanks to @Danielkonge! #4226 #4227
+* [notification_handling](config/lua/config/notification_handling.md) to
+  control whether notifications are suppressed based on focus. #3727
+* [command_palette_rows](config/lua/config/command_palette_rows.md) to
+  control how many rows are displayed in the command palette. Thanks to
+  @exastone! #4595
+* [ToggleAlwaysOnTop](config/lua/keyassignment/ToggleAlwaysOnTop.md),
+  [ToggleAlwaysOnBottom](config/lua/keyassignment/ToggleAlwaysOnBottom.md) and
+  [SetWindowLevel](config/lua/keyassignment/SetWindowLevel.md) key assignments
+  for manipulating the window level. These are currently implemented only
+  on macOS. Thanks to @rawnly! #4567
+* Double click on the tab bar to toggle maximize/normal state. Thanks to
+  @junnplus! #3698 #3699
+* [freetype_load_target](config/lua/config/freetype_load_target.md) and
+  [freetype_render_target](config/lua/config/freetype_render_target.md) can now
+  be set to `VerticalLcd` for vertically decimated LCD displays. Thanks to
+  @xiaopengli89! #4426
+* Pressing `CTRL-[` in the launcher menu will close it. #4722
+* [pane:get_lines_as_escapes()](config/lua/pane/get_lines_as_escapes.md) to
+  retrieve text + style/formatting. #4780
 
 #### Fixed
 * Command Palette was using now-invalid Nerd Font 2.0 symbols for macOS
@@ -94,11 +222,58 @@ As features stabilize some brief notes about them will accumulate here.
   than the native font dimensions and looked weird when either config option was
   not set to `1.0`. #2882
 * Using `CloseCurrentPane` could sometimes leave a stranded pane in a tab. #4030
+* Wayland: wezterm wouldn't start on Plasma 6 or newer versions of sway. Thanks
+  to @hexchain! #3996 #4322.
+* font-config: when resolving a fallback font for a text cluster like `U+3065,U+2686`
+  where no single font contains both glyphs, wezterm would fail to show a glyph
+  for either codepoint.  We now split the fallback query up and query for each
+  individual codepoint separately. #4310
+* Gogh color schemes all had the incorrect cursor foreground color. #4257
+* Windows: crash on Windows 11 when using DX 12 with the WebGpu frontend. #4279
+* macOS: Leak of NSWindow and NSView objects. Thanks to @0f-0b! #4457
+* Initial G1 state is non-conformant. Thanks to @ninjalj! #4534 #3962
+* Make RIS also clear the alternate screen. Thanks to @ninjalj! #4563
+* DECRQCRA: treat uninitialized cells as spaces. Thanks to @ninjalj! #4565
+* Clamp cursor position reported by CPR. Thanks to @ninjalj! #4564
+* Correct `SUPER` modifier key handling in kitty protocol. Thanks to @gabyx! #4605
+* macOS: honor the `window_close_confirmation` config option when quitting the
+  application. Thanks to @quantonganh! #4420 #4362
+* terminfo: added missing terminator to Sync capability. Thanks to @gpanders! #4578
+* bracketed paste escape sequences are now always stripped out of text
+  that is pasted into the terminal. This happens even if bracketed paste
+  mode is disabled. #4765
+* Sixel parser ignores P2 parameter if P1 is blank. Thanks to @joouha! #4730
+* X11: synthesize raw modifiers to resolve some issues with synthetic/injected
+  key press events experienced by Espanso. Thanks to @bew! #4151 #3840
+* `freetype_load_target` had no effect. Thanks to @dkoukola! #4775 #4770
+* Incorrect sunset / sunrise progression. Thanks to @mikyk10! #4809 #4810
+* retro tab bar indented too far on macOS when using integrated titlebar buttons.
+  Thanks to @0xdead10cd! #4505
+* x11/wayland: avoid including keysym name in deadkey compose cursor. #4511
+* Mouse wheel scrolling now works correctly when hovering over the inactive pane.
+  Thanks to @tradiff! #4339 #2373
+* Scrolling glitch in Command Palette, Launcher and InputSelector. Thanks to
+  @metiftikci! #4839
+* Pane resizing, especially around zooming, could sometimes leave artifacts due
+  to a cache invalidation issue. #4828
+* X11: Fix an issue where SHIFT and other modifiers could be inaccurate for automated
+  or high speed keyboard inputs. #4615 #3840
+* X11: can now paste STRING (latin-1) data from the clipboard, in addition to
+  UTF-8 string data. #4402
+* [use_resize_increments](config/lua/config/use_resize_increments.md) now
+  accounts for window padding. Thanks to @jknockel! #4824
+* Bar shaped text cursors are now rendered above text. Thanks to
+  @ErrorNoInternet! #4850
+* `format-tab-title` event was triggered excessively for background tabs/panes.
+  Thanks to @crides for investigating! #4788
 
 #### Updated
-* Bundled harfbuzz to 8.1.1
+* Bundled harfbuzz to 8.3.0
 * Bundled freetype to 2.13.1
 * Bundled Noto Color Emoji font to 2.038
+* Bundled Nerd Font Symbols font to v3.1.1.
+* wgpu to 0.18, which [improves OpenGL compatibility with older GPUs when using
+  WebGpu with its GL backend on Windows](https://github.com/gfx-rs/wgpu/releases/tag/v0.18.0)
 
 ### 20230712-072601-f4abf8fd
 

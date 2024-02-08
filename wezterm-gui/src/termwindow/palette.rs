@@ -375,7 +375,7 @@ impl CommandPalette {
                 let separator = if term_window.config.ui_key_cap_rendering
                     == ::window::UIKeyCapRendering::AppleSymbols
                 {
-                    ""
+                    " "
                 } else {
                     "-"
                 };
@@ -567,7 +567,7 @@ impl CommandPalette {
         let mut row = self.selected_row.borrow_mut();
         *row = row.saturating_add(1).min(limit);
         let mut top_row = self.top_row.borrow_mut();
-        if *row + *top_row > max_rows_on_screen - 1 {
+        if *row > *top_row + max_rows_on_screen - 1 {
             *top_row = row.saturating_sub(max_rows_on_screen - 1);
         }
     }
@@ -664,9 +664,12 @@ impl Modal for CommandPalette {
             .expect("to resolve char selection font");
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
 
-        let max_rows_on_screen = ((term_window.dimensions.pixel_height * 8 / 10)
+        let mut max_rows_on_screen = ((term_window.dimensions.pixel_height * 8 / 10)
             / metrics.cell_size.height as usize)
             - 2;
+        if let Some(size) = term_window.config.command_palette_rows {
+            max_rows_on_screen = max_rows_on_screen.min(size);
+        }
         *self.max_rows_on_screen.borrow_mut() = max_rows_on_screen;
 
         let rebuild_matches = results

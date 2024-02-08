@@ -133,6 +133,12 @@ pub struct Config {
     #[dynamic(default)]
     pub switch_to_last_active_tab_when_closing_tab: bool,
 
+    /// When true, launching a new wezterm instance will prefer
+    /// to spawn a new tab into an existing instance.
+    /// Otherwise, it will spawn a new window.
+    #[dynamic(default)]
+    pub prefer_to_spawn_tabs: bool,
+
     #[dynamic(default)]
     pub window_frame: WindowFrameConfig,
 
@@ -148,6 +154,7 @@ pub struct Config {
     #[dynamic(default = "default_command_palette_font_size")]
     pub command_palette_font_size: f64,
 
+    pub command_palette_rows: Option<usize>,
     #[dynamic(default = "default_command_palette_fg_color")]
     pub command_palette_fg_color: RgbaColor,
 
@@ -265,7 +272,7 @@ pub struct Config {
     #[dynamic(default)]
     pub freetype_render_target: Option<FreeTypeLoadTarget>,
     #[dynamic(default)]
-    pub freetype_load_flags: FreeTypeLoadFlags,
+    pub freetype_load_flags: Option<FreeTypeLoadFlags>,
 
     /// Selects the freetype interpret version to use.
     /// Likely values are 35, 38 and 40 which have different
@@ -661,6 +668,9 @@ pub struct Config {
     #[dynamic(default)]
     pub ime_preedit_rendering: ImePreeditRendering,
 
+    #[dynamic(default)]
+    pub notification_handling: NotificationHandling,
+
     #[dynamic(default = "default_true")]
     pub use_dead_keys: bool,
 
@@ -677,7 +687,10 @@ pub struct Config {
 
     #[dynamic(default = "default_check_for_updates")]
     pub check_for_updates: bool,
-    #[dynamic(default)]
+    #[dynamic(
+        default,
+        deprecated = "this option no longer does anything and will be removed in a future release"
+    )]
     pub show_update_window: bool,
 
     #[dynamic(default = "default_update_interval")]
@@ -1431,21 +1444,24 @@ impl Config {
         }
     }
 
-    pub fn initial_size(&self, dpi: u32) -> TerminalSize {
+    pub fn initial_size(&self, dpi: u32, cell_pixel_dims: Option<(usize, usize)>) -> TerminalSize {
+        // If we aren't passed the actual values, guess at a plausible
+        // default set of pixel dimensions.
+        // This is based on "typical" 10 point font at "normal"
+        // pixel density.
+        // This will get filled in by the gui layer, but there is
+        // an edge case where we emit an iTerm image escape in
+        // the software update banner through the mux layer before
+        // the GUI has had a chance to update the pixel dimensions
+        // when running under X11.
+        // This is a bit gross.
+        let (cell_pixel_width, cell_pixel_height) = cell_pixel_dims.unwrap_or((8, 16));
+
         TerminalSize {
             rows: self.initial_rows as usize,
             cols: self.initial_cols as usize,
-            // Guess at a plausible default set of pixel dimensions.
-            // This is based on "typical" 10 point font at "normal"
-            // pixel density.
-            // This will get filled in by the gui layer, but there is
-            // an edge case where we emit an iTerm image escape in
-            // the software update banner through the mux layer before
-            // the GUI has had a chance to update the pixel dimensions
-            // when running under X11.
-            // This is a bit gross.
-            pixel_width: 8 * self.initial_cols as usize,
-            pixel_height: 16 * self.initial_rows as usize,
+            pixel_width: cell_pixel_width * self.initial_cols as usize,
+            pixel_height: cell_pixel_height * self.initial_rows as usize,
             dpi,
         }
     }
@@ -1931,7 +1947,9 @@ impl DroppedFileQuoting {
             Self::None => s.to_string(),
             Self::SpacesOnly => s.replace(" ", "\\ "),
             // https://docs.rs/shlex/latest/shlex/fn.quote.html
-            Self::Posix => shlex::quote(s).into_owned(),
+            Self::Posix => shlex::try_quote(s)
+                .unwrap_or_else(|_| "".into())
+                .into_owned(),
             Self::Windows => {
                 let chars_need_quoting = [' ', '\t', '\n', '\x0b', '\"'];
                 if s.chars().any(|c| chars_need_quoting.contains(&c)) {
@@ -2006,6 +2024,16 @@ pub enum ImePreeditRendering {
     Builtin,
     /// IME preedit is rendered by system
     System,
+}
+
+#[derive(Debug, FromDynamic, ToDynamic, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NotificationHandling {
+    #[default]
+    AlwaysShow,
+    NeverShow,
+    SuppressFromFocusedPane,
+    SuppressFromFocusedTab,
+    SuppressFromFocusedWindow,
 }
 
 fn validate_row_or_col(value: &u16) -> Result<(), String> {

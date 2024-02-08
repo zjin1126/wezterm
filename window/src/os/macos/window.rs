@@ -10,8 +10,8 @@ use crate::parameters::{Border, Parameters, TitleBar};
 use crate::{
     Clipboard, Connection, DeadKeyStatus, Dimensions, Handled, KeyCode, KeyEvent, Modifiers,
     MouseButtons, MouseCursor, MouseEvent, MouseEventKind, MousePress, Point, RawKeyEvent, Rect,
-    RequestedWindowGeometry, ResolvedGeometry, ScreenPoint, Size, ULength, WindowDecorations,
-    WindowEvent, WindowEventSender, WindowOps, WindowState,
+    RequestedWindowGeometry, ResizeIncrement, ResolvedGeometry, ScreenPoint, Size, ULength,
+    WindowDecorations, WindowEvent, WindowEventSender, WindowOps, WindowState,
 };
 use anyhow::{anyhow, bail, ensure};
 use async_trait::async_trait;
@@ -26,6 +26,7 @@ use cocoa::foundation::{
     NSArray, NSAutoreleasePool, NSFastEnumeration, NSInteger, NSNotFound, NSPoint, NSRect, NSSize,
     NSUInteger,
 };
+use config::window::WindowLevel;
 use config::ConfigHandle;
 use core_foundation::base::{CFTypeID, TCFType};
 use core_foundation::bundle::{CFBundleGetBundleWithIdentifier, CFBundleGetFunctionPointerForName};
@@ -312,6 +313,10 @@ mod cglbits {
     }
 
     unsafe impl glium::backend::Backend for GlState {
+        fn resize(&self, _: (u32, u32)) {
+            todo!()
+        }
+
         fn swap_buffers(&self) -> Result<(), glium::SwapBuffersError> {
             unsafe {
                 let pool = NSAutoreleasePool::new(nil);
@@ -447,6 +452,13 @@ impl Window {
             x,
             y,
         } = conn.resolve_geometry(geometry);
+
+        let scale_factor = (conn.default_dpi() / crate::DEFAULT_DPI) as usize;
+        let width = width / scale_factor;
+        let height = height / scale_factor;
+        let x = x.map(|x| x / scale_factor as i32);
+        let y = y.map(|y| y / scale_factor as i32);
+
         let initial_pos = match (x, y) {
             (Some(x), Some(y)) => Some(ScreenPoint::new(x as isize, y as isize)),
             _ => None,
@@ -511,8 +523,7 @@ impl Window {
             let _: () = msg_send![*window, setRestorable: NO];
 
             window.setReleasedWhenClosed_(NO);
-            let ns_color: id = msg_send![Class::get("NSColor").unwrap(), alloc];
-            window.setBackgroundColor_(cocoa::appkit::NSColor::clearColor(ns_color));
+            window.setBackgroundColor_(cocoa::appkit::NSColor::clearColor(nil));
 
             // We could set this, but it makes the entire window, including
             // its titlebar, opaque to this fixed degree.
@@ -665,6 +676,26 @@ unsafe impl HasRawWindowHandle for Window {
     }
 }
 
+/// @see https://developer.apple.com/documentation/appkit/nswindow/level
+pub type NSWindowLevel = i64;
+
+pub fn nswindow_level_to_window_level(nswindow_level: NSWindowLevel) -> WindowLevel {
+    match nswindow_level {
+        -1 => WindowLevel::AlwaysOnBottom,
+        0 => WindowLevel::Normal,
+        3 => WindowLevel::AlwaysOnTop,
+        _ => panic!("Invalid window level: {}", nswindow_level),
+    }
+}
+
+pub fn window_level_to_nswindow_level(level: WindowLevel) -> NSWindowLevel {
+    match level {
+        WindowLevel::AlwaysOnBottom => -1,
+        WindowLevel::Normal => 0,
+        WindowLevel::AlwaysOnTop => 3,
+    }
+}
+
 #[async_trait(?Send)]
 impl WindowOps for Window {
     async fn enable_opengl(&self) -> anyhow::Result<Rc<glium::backend::Context>> {
@@ -746,9 +777,23 @@ impl WindowOps for Window {
         });
     }
 
+    fn set_window_level(&self, level: WindowLevel) {
+        Connection::with_window_inner(self.id, move |inner| {
+            inner.set_window_level(level);
+            Ok(())
+        });
+    }
+
     fn set_inner_size(&self, width: usize, height: usize) {
         Connection::with_window_inner(self.id, move |inner| {
             inner.set_inner_size(width, height);
+            if let Some(window_view) = WindowView::get_this(unsafe { &**inner.view }) {
+                window_view
+                    .inner
+                    .borrow_mut()
+                    .events
+                    .dispatch(WindowEvent::SetInnerSizeCompleted);
+            }
             Ok(())
         });
     }
@@ -800,9 +845,9 @@ impl WindowOps for Window {
         });
     }
 
-    fn set_resize_increments(&self, x: u16, y: u16) {
+    fn set_resize_increments(&self, incr: ResizeIncrement) {
         Connection::with_window_inner(self.id, move |inner| {
-            inner.set_resize_increments(x, y);
+            inner.set_resize_increments(incr);
             Ok(())
         });
     }
@@ -1150,6 +1195,14 @@ impl WindowInner {
         }
     }
 
+    fn set_window_level(&mut self, level: WindowLevel) {
+        unsafe {
+            NSWindow::setLevel_(*self.window, window_level_to_nswindow_level(level));
+            // Dispatch a resize event with the updated window state
+            WindowView::did_resize(&mut **self.view, sel!(windowDidResize:), nil);
+        }
+    }
+
     fn set_inner_size(&mut self, width: usize, height: usize) {
         unsafe {
             let frame = NSView::frame(*self.view as *mut _);
@@ -1221,10 +1274,16 @@ impl WindowInner {
         }
     }
 
-    fn set_resize_increments(&self, x: u16, y: u16) {
+    fn set_resize_increments(&self, incr: ResizeIncrement) {
+        let min_width = incr.base_width + incr.x;
+        let min_height = incr.base_height + incr.y;
         unsafe {
             self.window
-                .setResizeIncrements_(NSSize::new(x.into(), y.into()));
+                .setResizeIncrements_(NSSize::new(incr.x.into(), incr.y.into()));
+            let () = msg_send![
+                *self.window,
+                setContentMinSize: NSSize::new(min_width.into(), min_height.into())
+            ];
         }
     }
 
@@ -1734,15 +1793,6 @@ impl WindowView {
         }
     }
 
-    /// `dealloc` is called when our NSView descendant is destroyed.
-    /// In practice, I've not seen this trigger, which likely means
-    /// that there is something afoot with reference counting.
-    /// The cardinality of Window and View objects is low enough
-    /// that I'm "OK" with this for now.
-    /// What really matters is that the `Inner` object is dropped
-    /// in a timely fashion once the window is closed, so we manage
-    /// that by hooking into `windowWillClose` and routing both
-    /// `dealloc` and `windowWillClose` to `drop_inner`.
     fn drop_inner(this: &mut Object) {
         unsafe {
             let myself: *mut c_void = *this.get_ivar(VIEW_CLS_NAME);
@@ -2124,10 +2174,10 @@ impl WindowView {
                 .events
                 .dispatch(WindowEvent::Destroyed);
             this.update_application_presentation(false);
+            let conn = Connection::get().unwrap();
+            let window_id = this.inner.borrow_mut().window_id;
+            conn.windows.borrow_mut().remove(&window_id);
         }
-
-        // Release and zero out the inner member
-        Self::drop_inner(this);
     }
 
     fn mouse_common(this: &mut Object, nsevent: id, kind: MouseEventKind) {
@@ -2762,6 +2812,27 @@ impl WindowView {
                     unsafe { msg_send![*window, isZoomed] }
                 });
 
+            let window_level = inner
+                .window
+                .as_ref()
+                .map(|window| {
+                    let level = unsafe { window.load().level() };
+                    nswindow_level_to_window_level(level)
+                })
+                .unwrap_or_default();
+
+            let level_state = match window_level {
+                WindowLevel::AlwaysOnBottom => WindowState::ALWAYS_ON_BOTTOM,
+                WindowLevel::AlwaysOnTop => WindowState::ALWAYS_ON_TOP,
+                WindowLevel::Normal => WindowState::default(),
+            };
+
+            let screen_state = match (is_full_screen, is_zoomed) {
+                (true, _) => WindowState::FULL_SCREEN,
+                (_, true) => WindowState::MAXIMIZED,
+                _ => WindowState::default(),
+            };
+
             let dpi = inner
                 .window
                 .as_ref()
@@ -2778,13 +2849,7 @@ impl WindowView {
                     pixel_height: height as usize,
                     dpi,
                 },
-                window_state: if is_full_screen {
-                    WindowState::FULL_SCREEN
-                } else if is_zoomed {
-                    WindowState::MAXIMIZED
-                } else {
-                    WindowState::default()
-                },
+                window_state: screen_state | level_state,
                 live_resizing,
             });
         }

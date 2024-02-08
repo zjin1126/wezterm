@@ -378,7 +378,10 @@ pub struct TerminalState {
 
     accumulating_title: Option<String>,
 
+    /// seqno when we last lost focus
     lost_focus_seqno: SequenceNo,
+    /// seqno when we last emitted Alert::OutputSinceFocusLost
+    lost_focus_alerted_seqno: SequenceNo,
     focused: bool,
 
     /// True if lines should be marked as bidi-enabled, and thus
@@ -546,7 +549,7 @@ impl TerminalState {
             last_mouse_move: None,
             cursor_visible: true,
             g0_charset: CharSet::Ascii,
-            g1_charset: CharSet::DecLineDrawing,
+            g1_charset: CharSet::Ascii,
             shift_out: false,
             newline_mode: false,
             current_mouse_buttons: vec![],
@@ -575,6 +578,7 @@ impl TerminalState {
             enable_conpty_quirks: false,
             accumulating_title: None,
             lost_focus_seqno: seqno,
+            lost_focus_alerted_seqno: seqno,
             focused: true,
             bidi_enabled: None,
             bidi_hint: None,
@@ -795,8 +799,15 @@ impl TerminalState {
 
     pub(crate) fn trigger_unseen_output_notif(&mut self) {
         if self.has_unseen_output() {
-            if let Some(handler) = self.alert_handler.as_mut() {
-                handler.alert(Alert::OutputSinceFocusLost);
+            // We want to avoid over-notifying about output events,
+            // so here we gate the notification to the case where
+            // we have lost the focus more recently than the last
+            // time we notified about it
+            if self.lost_focus_seqno > self.lost_focus_alerted_seqno {
+                self.lost_focus_alerted_seqno = self.seqno;
+                if let Some(handler) = self.alert_handler.as_mut() {
+                    handler.alert(Alert::OutputSinceFocusLost);
+                }
             }
         }
     }
@@ -804,6 +815,8 @@ impl TerminalState {
     /// Send text to the terminal that is the result of pasting.
     /// If bracketed paste mode is enabled, the paste is enclosed
     /// in the bracketing, otherwise it is fed to the writer as-is.
+    /// De-fang the text by removing any embedded bracketed paste
+    /// sequence that may be present.
     pub fn send_paste(&mut self, text: &str) -> Result<(), Error> {
         let mut buf = String::new();
         if self.bracketed_paste {
@@ -817,7 +830,8 @@ impl TerminalState {
         };
 
         let canon = canon.canonicalize(text);
-        buf.push_str(&canon);
+        let de_fanged = canon.replace("\x1b[200~", "").replace("\x1b[201~", "");
+        buf.push_str(&de_fanged);
 
         if self.bracketed_paste {
             buf.push_str("\x1b[201~");
@@ -833,6 +847,7 @@ impl TerminalState {
     /// We need to resize both the primary and alt screens, adjusting
     /// the cursor positions of both accordingly.
     pub fn resize(&mut self, size: TerminalSize) {
+        self.increment_seqno();
         let (cursor_main, cursor_alt) = if self.screen.alt_screen_is_active {
             (
                 self.screen
@@ -904,6 +919,13 @@ impl TerminalState {
         }
     }
 
+    fn palette_did_change(&mut self) {
+        self.make_all_lines_dirty();
+        if let Some(handler) = self.alert_handler.as_mut() {
+            handler.alert(Alert::PaletteChanged);
+        }
+    }
+
     /// When dealing with selection, mark a range of lines as dirty
     pub fn make_all_lines_dirty(&mut self) {
         let seqno = self.seqno;
@@ -927,6 +949,11 @@ impl TerminalState {
             },
             seqno: self.cursor.seqno,
         }
+    }
+
+    /// Returns the current cell attributes of the screen
+    pub fn pen(&self) -> CellAttributes {
+        self.pen.clone()
     }
 
     pub fn user_vars(&self) -> &HashMap<String, String> {
@@ -1248,6 +1275,9 @@ impl TerminalState {
                 self.reverse_video_mode = false;
                 self.bidi_enabled.take();
                 self.bidi_hint.take();
+
+                self.g0_charset = CharSet::Ascii;
+                self.g1_charset = CharSet::Ascii;
             }
             Device::RequestPrimaryDeviceAttributes => {
                 let mut ident = "\x1b[?65".to_string(); // Vt500
@@ -1343,6 +1373,22 @@ impl TerminalState {
                 self.writer.flush().ok();
             }
         }
+    }
+
+    /// Indicates that mode is permanently enabled
+    fn decqrm_response_permanent(&mut self, mode: Mode) {
+        let (is_dec, number) = match &mode {
+            Mode::QueryDecPrivateMode(DecPrivateMode::Code(code)) => (true, code.to_u16().unwrap()),
+            Mode::QueryDecPrivateMode(DecPrivateMode::Unspecified(code)) => (true, *code),
+            Mode::QueryMode(TerminalMode::Code(code)) => (false, code.to_u16().unwrap()),
+            Mode::QueryMode(TerminalMode::Unspecified(code)) => (false, *code),
+            _ => unreachable!(),
+        };
+
+        let prefix = if is_dec { "?" } else { "" };
+
+        write!(self.writer, "\x1b[{prefix}{number};3$y").ok();
+        self.writer.flush().ok();
     }
 
     fn decqrm_response(&mut self, mode: Mode, mut recognized: bool, enabled: bool) {
@@ -1447,6 +1493,21 @@ impl TerminalState {
                 DecPrivateModeCode::LeftRightMarginMode,
             )) => {
                 self.decqrm_response(mode, true, self.left_and_right_margin_mode);
+            }
+
+            Mode::SetDecPrivateMode(DecPrivateMode::Code(
+                DecPrivateModeCode::GraphemeClustering,
+            ))
+            | Mode::ResetDecPrivateMode(DecPrivateMode::Code(
+                DecPrivateModeCode::GraphemeClustering,
+            )) => {
+                // Permanently enabled
+            }
+
+            Mode::QueryDecPrivateMode(DecPrivateMode::Code(
+                DecPrivateModeCode::GraphemeClustering,
+            )) => {
+                self.decqrm_response_permanent(mode);
             }
 
             Mode::SetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::SaveCursor)) => {
@@ -1940,7 +2001,17 @@ impl TerminalState {
                 checksum += u16::from(ch as u8);
             }
         }
-        checksum
+
+        // Treat uninitialized cells as spaces.
+        // The concept of uninitialized cells in wezterm is not the same as that on VT520 or that
+        // on xterm, so, to prevent a lot of noise in esctest, treat them as spaces, at least when
+        // asking for the checksum of a single cell (which is what esctest does).
+        // See: https://github.com/wez/wezterm/pull/4565
+        if checksum == 0 {
+            32u16
+        } else {
+            checksum
+        }
     }
 
     fn perform_csi_window(&mut self, window: Window) {
@@ -2474,11 +2545,15 @@ impl TerminalState {
                     })) as u32,
                 );
                 let col = OneBased::from_zero_based(
-                    (self.cursor.x.saturating_sub(if self.dec_origin_mode {
-                        self.left_and_right_margins.start
-                    } else {
-                        0
-                    })) as u32,
+                    (self
+                        .cursor
+                        .x
+                        .min(self.screen().physical_cols - 1)
+                        .saturating_sub(if self.dec_origin_mode {
+                            self.left_and_right_margins.start
+                        } else {
+                            0
+                        })) as u32,
                 );
                 let report = CSI::Cursor(Cursor::ActivePositionReport { line, col });
                 write!(self.writer, "{}", report).ok();
@@ -2545,7 +2620,7 @@ impl TerminalState {
                 pen: Default::default(),
                 dec_origin_mode: false,
                 g0_charset: CharSet::Ascii,
-                g1_charset: CharSet::DecLineDrawing,
+                g1_charset: CharSet::Ascii,
             });
         debug!(
             "restore cursor {:?} is_alt={}",

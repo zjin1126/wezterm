@@ -1,5 +1,6 @@
 use crate::default_true;
 use crate::keys::KeyNoAction;
+use crate::window::WindowLevel;
 use luahelper::impl_lua_conversion_dynamic;
 use ordered_float::NotNan;
 use portable_pty::CommandBuilder;
@@ -228,7 +229,7 @@ impl SpawnCommand {
         if let Some(label) = &self.label {
             Some(label.to_string())
         } else if let Some(args) = &self.args {
-            Some(shlex::join(args.iter().map(|s| s.as_str())))
+            Some(shlex::try_join(args.iter().map(|s| s.as_str())).ok()?)
         } else {
             None
         }
@@ -477,6 +478,27 @@ pub struct InputSelector {
 
     #[dynamic(default)]
     pub fuzzy: bool,
+
+    #[dynamic(default = "default_num_alphabet")]
+    pub alphabet: String,
+
+    #[dynamic(default = "default_description")]
+    pub description: String,
+
+    #[dynamic(default = "default_fuzzy_description")]
+    pub fuzzy_description: String,
+}
+
+fn default_num_alphabet() -> String {
+    "1234567890abcdefghilmnopqrstuvwxyz".to_string()
+}
+
+fn default_description() -> String {
+    "Select an item and press Enter = accept,  Esc = cancel,  / = filter".to_string()
+}
+
+fn default_fuzzy_description() -> String {
+    "Fuzzy matching: ".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
@@ -484,6 +506,9 @@ pub enum KeyAssignment {
     SpawnTab(SpawnTabDomain),
     SpawnWindow,
     ToggleFullScreen,
+    ToggleAlwaysOnTop,
+    ToggleAlwaysOnBottom,
+    SetWindowLevel(WindowLevel),
     CopyTo(ClipboardCopyDestination),
     CopyTextTo {
         text: String,

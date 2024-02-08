@@ -73,15 +73,18 @@ class Step(object):
 
 
 class RunStep(Step):
-    def __init__(self, name, run, shell="bash", env=None):
+    def __init__(self, name, run, shell="bash", env=None, condition=None):
         self.name = name
         self.run = run
         self.shell = shell
         self.env = env
+        self.condition = condition
 
     def render(self, f, depth=0):
         indent = "  " * depth
         f.write(f"{indent}- name: {yv(self.name)}\n")
+        if self.condition:
+            f.write(f"{indent}  if: {self.condition}\n")
         if self.env:
             f.write(f"{indent}  env:\n")
             keys = list(self.env.keys())
@@ -98,17 +101,20 @@ class RunStep(Step):
 
 
 class ActionStep(Step):
-    def __init__(self, name, action, params=None, env=None, condition=None):
+    def __init__(self, name, action, params=None, env=None, condition=None, id=None):
         self.name = name
         self.action = action
         self.params = params
         self.env = env
         self.condition = condition
+        self.id = id
 
     def render(self, f, depth=0):
         indent = "  " * depth
         f.write(f"{indent}- name: {yv(self.name)}\n")
         f.write(f"{indent}  uses: {self.action}\n")
+        if self.id:
+            f.write(f"{indent}  id: {self.id}\n")
         if self.condition:
             f.write(f"{indent}  if: {self.condition}\n")
         if self.params:
@@ -122,23 +128,27 @@ class ActionStep(Step):
 
 
 class CacheStep(ActionStep):
-    def __init__(self, name, path, key):
+    def __init__(self, name, path, key, id=None):
         super().__init__(
-            name, action="actions/cache@v3", params={"path": path, "key": key}
+            name, action="actions/cache@v4", params={"path": path, "key": key}, id=id
         )
 
 
-class CacheRustStep(ActionStep):
-    def __init__(self, name, key):
-        super().__init__(name, action="Swatinem/rust-cache@v2", params={"key": key})
+class SccacheStep(ActionStep):
+    def __init__(self, name):
+        super().__init__(name, action="mozilla-actions/sccache-action@v0.0.4")
 
 
 class CheckoutStep(ActionStep):
-    def __init__(self, name="checkout repo", submodules=True):
+    def __init__(self, name="checkout repo", submodules=True, container=None):
         params = {}
         if submodules:
             params["submodules"] = "recursive"
-        super().__init__(name, action="actions/checkout@v3", params=params)
+        # Newer versions of the checkout action use a binary-incompatible node
+        # binary, so we are pinned back on v3
+        # https://github.com/actions/checkout/issues/1442
+        version = "v3" if container is not None and "centos7" in container else "v4"
+        super().__init__(name, action=f"actions/checkout@{version}", params=params)
 
 
 class InstallCrateStep(ActionStep):
@@ -148,7 +158,7 @@ class InstallCrateStep(ActionStep):
             params["version"] = version
         super().__init__(
             f"Install {crate} from Cargo",
-            action="baptiste0928/cargo-install@v2",
+            action="baptiste0928/cargo-install@v3",
             params=params,
         )
 
@@ -386,9 +396,19 @@ rustup default {toolchain}
             ]
         if cache:
             steps += [
-                CacheRustStep(
-                    name="Cache cargo",
-                    key=f"{key_prefix}-cargo",
+                SccacheStep(name="Compile with sccache"),
+                # Cache vendored dependecies
+                CacheStep(
+                    name="Cache Rust Dependencies",
+                    path="vendor\n.cargo/config",
+                    key="cargo-deps-${{ hashFiles('**/Cargo.lock') }}",
+                    id="cache-cargo-vendor",
+                ),
+                # Vendor dependencies
+                RunStep(
+                    name="Vendor dependecies",
+                    condition="steps.cache-cargo-vendor.outputs.cache-hit != 'true'",
+                    run="cargo vendor --locked --versioned-dirs >> .cargo/config",
                 ),
             ]
         return steps
@@ -589,7 +609,16 @@ cargo build --all --release""",
         patterns.append("*.sha256")
         glob = " ".join(patterns)
 
-        return steps + [
+        if self.container == "ubuntu:22.04":
+            steps += [
+                RunStep(
+                    "Upload to gemfury",
+                    f"for f in wezterm*.deb ; do curl -i -F package=@$f https://$FURY_TOKEN@push.fury.io/wez/ ; done",
+                    env={"FURY_TOKEN": "${{ secrets.FURY_TOKEN }}"},
+                ),
+            ]
+
+        return [
             ActionStep(
                 "Download artifact",
                 action="actions/download-artifact@v3",
@@ -601,7 +630,7 @@ cargo build --all --release""",
                 f"bash ci/retry.sh gh release upload --clobber nightly {glob}",
                 env={"GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}"},
             ),
-        ]
+        ] + steps
 
     def upload_asset_tag(self):
         steps = []
@@ -614,6 +643,15 @@ cargo build --all --release""",
 
         patterns.append("*.sha256")
         glob = " ".join(patterns)
+
+        if self.container == "ubuntu:22.04":
+            steps += [
+                RunStep(
+                    "Upload to gemfury",
+                    f"for f in wezterm*.deb ; do curl -i -F package=@$f https://$FURY_TOKEN@push.fury.io/wez/ ; done",
+                    env={"FURY_TOKEN": "${{ secrets.FURY_TOKEN }}"},
+                ),
+            ]
 
         return steps + [
             ActionStep(
@@ -644,7 +682,7 @@ cargo build --all --release""",
         return [
             ActionStep(
                 "Checkout flathub/org.wezfurlong.wezterm",
-                action="actions/checkout@v3",
+                action="actions/checkout@v4",
                 params={
                     "repository": "flathub/org.wezfurlong.wezterm",
                     "path": "flathub",
@@ -670,7 +708,7 @@ cargo build --all --release""",
             steps += [
                 ActionStep(
                     "Checkout winget-pkgs",
-                    action="actions/checkout@v3",
+                    action="actions/checkout@v4",
                     params={
                         "repository": "wez/winget-pkgs",
                         "path": "winget-pkgs",
@@ -706,7 +744,7 @@ cargo build --all --release""",
             steps += [
                 ActionStep(
                     "Checkout homebrew tap",
-                    action="actions/checkout@v3",
+                    action="actions/checkout@v4",
                     params={
                         "repository": "wez/homebrew-wezterm",
                         "path": "homebrew-wezterm",
@@ -719,7 +757,7 @@ cargo build --all --release""",
                 ),
                 ActionStep(
                     "Commit homebrew tap changes",
-                    action="stefanzweifel/git-auto-commit-action@v4",
+                    action="stefanzweifel/git-auto-commit-action@v5",
                     params={
                         "commit_message": "Automated update to match latest tag",
                         "repository": "homebrew-wezterm",
@@ -730,7 +768,7 @@ cargo build --all --release""",
             steps += [
                 ActionStep(
                     "Checkout linuxbrew tap",
-                    action="actions/checkout@v3",
+                    action="actions/checkout@v4",
                     params={
                         "repository": "wez/homebrew-wezterm-linuxbrew",
                         "path": "linuxbrew-wezterm",
@@ -743,7 +781,7 @@ cargo build --all --release""",
                 ),
                 ActionStep(
                     "Commit linuxbrew tap changes",
-                    action="stefanzweifel/git-auto-commit-action@v4",
+                    action="stefanzweifel/git-auto-commit-action@v5",
                     params={
                         "commit_message": "Automated update to match latest tag",
                         "repository": "linuxbrew-wezterm",
@@ -754,6 +792,9 @@ cargo build --all --release""",
         return steps
 
     def global_env(self):
+        self.env["CARGO_INCREMENTAL"] = "0"
+        self.env["SCCACHE_GHA_ENABLED"] = "true"
+        self.env["RUSTC_WRAPPER"] = "sccache"
         if "macos" in self.name:
             self.env["MACOSX_DEPLOYMENT_TARGET"] = "10.9"
         if "alpine" in self.name:
@@ -829,6 +870,15 @@ cargo build --all --release""",
                         "sed 's/root:!/root:*/g' -i /etc/shadow",
                     ),
                 ]
+            if "opensuse" in self.container:
+                steps += [
+                    # This holds the xcb bits
+                    RunStep(
+                        "Install tar",
+                        "zypper install -yl tar gzip",
+                    ),
+                ]
+
         steps += self.install_newer_compiler()
         steps += self.install_git()
         steps += self.install_curl()
@@ -841,7 +891,8 @@ cargo build --all --release""",
 
         steps += self.install_openssh_server()
         steps += self.checkout()
-        steps += self.install_rust(cache="mac" not in self.name)
+        # We should be able to cache mac builds now?
+        steps += self.install_rust() # cache="mac" not in self.name)
         steps += self.install_system_deps()
         return steps
 
@@ -871,7 +922,7 @@ cargo build --all --release""",
                     "git config --global --add safe.directory /__w/wezterm/wezterm",
                 )
             ]
-        steps += [CheckoutStep(submodules=submodules)]
+        steps += [CheckoutStep(submodules=submodules, container=self.container)]
         return steps
 
     def continuous(self):
@@ -935,22 +986,14 @@ TARGETS = [
     Target(container="debian:10.3", continuous_only=True),
     Target(container="debian:11", continuous_only=True),
     Target(container="debian:12", continuous_only=True),
-    Target(
-        name="centos7", container="quay.io/centos/centos:centos7", bootstrap_git=True
-    ),
     Target(name="centos8", container="quay.io/centos/centos:stream8"),
     Target(name="centos9", container="quay.io/centos/centos:stream9"),
     Target(name="macos", os="macos-11"),
     # https://fedoraproject.org/wiki/End_of_life?rd=LifeCycle/EOL
-    Target(container="fedora:36"),
     Target(container="fedora:37"),
     Target(container="fedora:38"),
+    Target(container="fedora:39"),
     # Target(container="alpine:3.15"),
-    Target(name="opensuse_leap", container="registry.opensuse.org/opensuse/leap:15.4"),
-    Target(
-        name="opensuse_tumbleweed",
-        container="registry.opensuse.org/opensuse/tumbleweed",
-    ),
     Target(name="windows", os="windows-latest", rust_target="x86_64-pc-windows-msvc"),
 ]
 
