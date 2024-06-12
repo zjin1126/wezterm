@@ -10,6 +10,14 @@ fn new_build() -> cc::Build {
 }
 
 fn zlib() {
+    if pkg_config::Config::new()
+        .atleast_version("1.2.11")
+        .probe("zlib")
+        .is_ok()
+    {
+        return;
+    }
+
     if !Path::new("zlib/.git").exists() {
         git_submodule_update();
     }
@@ -47,6 +55,14 @@ fn zlib() {
 }
 
 fn libpng() {
+    if pkg_config::Config::new()
+        .atleast_version("1.6.31")
+        .probe("libpng")
+        .is_ok()
+    {
+        return;
+    }
+
     if !Path::new("libpng/.git").exists() {
         git_submodule_update();
     }
@@ -107,6 +123,14 @@ fn libpng() {
 }
 
 fn freetype() {
+    if pkg_config::Config::new()
+        .atleast_version("2.13.0")
+        .probe("freetype2")
+        .is_ok()
+    {
+        return;
+    }
+
     if !Path::new("freetype2/.git").exists() {
         git_submodule_update();
     }

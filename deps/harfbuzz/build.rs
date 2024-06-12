@@ -2,6 +2,14 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 fn harfbuzz() {
+    if pkg_config::Config::new()
+        .atleast_version("7.1.0")
+        .probe("harfbuzz")
+        .is_ok()
+    {
+        return;
+    }
+
     use std::fs;
 
     if !Path::new("harfbuzz/.git").exists() {
